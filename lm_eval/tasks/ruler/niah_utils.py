@@ -49,7 +49,7 @@ def niah_single_2(**kwargs):
             template=TEMPLATE,
             type_haystack="essay",
             type_needle_k="words",
-            type_needle_v="numbers",
+            type_needle_v="words",
             num_samples=500,
             shuffle=shuffle,
             enable_cache=enable_cache,
