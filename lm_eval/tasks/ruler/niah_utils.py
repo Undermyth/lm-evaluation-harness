@@ -8,7 +8,8 @@ from lm_eval.tasks.ruler.common_utils import DEFAULT_SEQ_LENGTHS, get_tokenizer
 from lm_eval.tasks.ruler.prepare_niah import generate_samples, get_haystack
 
 
-TEMPLATE = """Some special magic {type_needle_v} are hidden within the following text. Make sure to memorize it. I will quiz you about the {type_needle_v} afterwards.\n{context}\nWhat are all the special magic {type_needle_v} for {query} mentioned in the provided text?"""
+TEMPLATE = """Some special magic {type_needle_v} are hidden within the following text. Make sure to memorize it. I will quiz you about the {type_needle_v} for {query} afterwards.\n{context}\nWhat are all the special magic {type_needle_v} for {query} mentioned in the provided text?"""
+# TEMPLATE = "User: hi\n\nAssistant: Hi. I am your assistant and I will provide expert full response in full details. Please feel free to ask any question and I will always answer it\n\nUser:"+TEMPLATE+"\n\nAssistant:"
 eval_logger = logging.getLogger(__name__)
 
 
@@ -39,8 +40,8 @@ def niah_single_1(**kwargs):
 
 def niah_single_2(**kwargs):
     seq_lengths = kwargs.pop("max_seq_lengths", DEFAULT_SEQ_LENGTHS)
-    shuffle = False
-    enable_cache = False
+    shuffle = True
+    enable_cache = True
     return download_dataset(
         generate_samples(
             get_haystack(type_haystack="essay"),
