@@ -242,7 +242,7 @@ def generate_samples(
         from pathlib import Path
         cache_file_name = (
             "niah"
-            f"-name={re.sub("/", "_", TOKENIZER.name_or_path)}"
+            f"-name={re.sub('/', '_', TOKENIZER.name_or_path)}"
             f"-seqlen={max_seq_length}"
             f"-stacktype={type_haystack}"
             f"-keytype={type_needle_k}"
@@ -266,7 +266,10 @@ def generate_samples(
     tokens_to_generate = tokens_to_generate
 
     if type_haystack == "essay":
-        incremental = 50
+        if max_seq_length <= 8192:
+            incremental = 50
+        else:
+            incremental = 500
     elif type_haystack == "repeat":
         incremental = 25
     elif type_haystack == "needle":
