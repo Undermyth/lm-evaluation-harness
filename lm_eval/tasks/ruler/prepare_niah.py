@@ -146,7 +146,7 @@ def generate_input_output(
     if type_haystack == "essay":
         assert isinstance(haystack, list)
         text = " ".join(haystack[:num_haystack])
-        document_sents = cached_sent_tokenize(text.strip())
+        document_sents = cached_sent_tokenize(text.strip()) # [comment] a list of sentences
         insertion_positions = (
             [0]
             + sorted(
@@ -229,14 +229,44 @@ def generate_samples(
     incremental: int = 500,
     remove_newline_tab: bool = False,
     random_seed: int = 42,
+    shuffle: bool = False,
+    enable_cache: bool = False
 ) -> list[dict]:
     assert TOKENIZER is not None, "TOKENIZER is not defined."
+    if shuffle:
+        assert type_haystack == "essay", "Shuffling is only supported for essay haystacks."
+    
+    if enable_cache:
+        import os
+        import json
+        from pathlib import Path
+        cache_file_name = (
+            "niah"
+            f"-name={re.sub("/", "_", TOKENIZER.name_or_path)}"
+            f"-seqlen={max_seq_length}"
+            f"-stacktype={type_haystack}"
+            f"-keytype={type_needle_k}"
+            f"-valtype={type_needle_v}"
+            f"-numkey={num_needle_k}"
+            f"-numval={num_needle_v}"
+            f"-numq={num_needle_q}"
+            + ("-shuffle" if shuffle else "")
+            + ".jsonl"
+        )
+        cache_dir = os.path.expanduser("~/.cache/lmeval")
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_file = Path(cache_dir) / Path(cache_file_name)
+        if cache_file.exists():
+            print(f"[RULER benchmark] Loading cached dataset from {cache_file}")
+            with open(cache_file, "r") as f:
+                return [json.loads(line) for line in f]
+    
     num_needle_k = max(num_needle_k, num_needle_q)
     write_jsons = []
     tokens_to_generate = tokens_to_generate
 
     if type_haystack == "essay":
-        incremental = 500
+        incremental = 50
     elif type_haystack == "repeat":
         incremental = 25
     elif type_haystack == "needle":
@@ -245,34 +275,40 @@ def generate_samples(
     if type_haystack != "essay" and max_seq_length < 4096:
         incremental = 5
 
-    num_haystack = incremental
+    def get_num_haystack(haystack):
+        num_haystack = incremental
+        total_tokens = 0  # Track the total tokens generated for the first example
+        while total_tokens + tokens_to_generate < max_seq_length:
+            input_text, answer, query = generate_input_output(
+                num_haystack,   # [comment] increase in unit of words
+                haystack,       # [comment] a list of words
+                type_haystack=type_haystack,
+                num_needle_k=num_needle_k,
+                type_needle_k=type_needle_k,
+                num_needle_v=num_needle_v,
+                type_needle_v=type_needle_v,
+                template=template,
+                num_needle_q=num_needle_q,
+                random_seed=random_seed,
+            )
+            # Calculate the number of tokens in the example
+            total_tokens = len(TOKENIZER(input_text + " ".join(answer)).input_ids)
+            if total_tokens + tokens_to_generate > max_seq_length:
+                num_haystack -= incremental
+                break
 
-    total_tokens = 0  # Track the total tokens generated for the first example
-    while total_tokens + tokens_to_generate < max_seq_length:
-        input_text, answer, query = generate_input_output(
-            num_haystack,
-            haystack,
-            type_haystack=type_haystack,
-            num_needle_k=num_needle_k,
-            type_needle_k=type_needle_k,
-            num_needle_v=num_needle_v,
-            type_needle_v=type_needle_v,
-            template=template,
-            num_needle_q=num_needle_q,
-            random_seed=random_seed,
-        )
-        # Calculate the number of tokens in the example
-        total_tokens = len(TOKENIZER(input_text + " ".join(answer)).input_ids)
-        if total_tokens + tokens_to_generate > max_seq_length:
-            num_haystack -= incremental
-            break
+            if type_haystack == "essay" and num_haystack > len(haystack):
+                num_haystack = len(haystack)
+                break
 
-        if type_haystack == "essay" and num_haystack > len(haystack):
-            num_haystack = len(haystack)
-            break
+            num_haystack += incremental
+        return num_haystack
 
-        num_haystack += incremental
-
+    if not shuffle:
+        num_haystack = get_num_haystack(haystack)
+    else:
+        sent_haystack = list(datasets.load_dataset("baber/paul_graham_essays", split="train")["text"])
+        sent_haystack = [re.sub(r"\s+", " ", sent) for sent in sent_haystack]
     # print("Num haystack:", num_haystack)
 
     # Generate samples
@@ -280,6 +316,10 @@ def generate_samples(
         range(num_samples),
         desc=f"Generating synthetic samples: {type_haystack} | {max_seq_length}",
     ):
+        if shuffle:
+            random.shuffle(sent_haystack)
+            haystack = " ".join(sent_haystack).split(" ")
+            num_haystack = get_num_haystack(haystack)
         used_haystack = num_haystack
         while True:
             try:
@@ -323,6 +363,12 @@ def generate_samples(
                 f"Needle not in input: {formatted_output}. Something went wrong."
             )
         write_jsons.append(formatted_output)
+    
+    if enable_cache:
+        with open(cache_file, "w") as f:
+            for sample in write_jsons:
+                json.dump(sample, f, ensure_ascii=False)
+                f.write("\n")
     return write_jsons
 
 

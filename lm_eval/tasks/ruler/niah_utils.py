@@ -39,6 +39,8 @@ def niah_single_1(**kwargs):
 
 def niah_single_2(**kwargs):
     seq_lengths = kwargs.pop("max_seq_lengths", DEFAULT_SEQ_LENGTHS)
+    shuffle = False
+    enable_cache = False
     return download_dataset(
         generate_samples(
             get_haystack(type_haystack="essay"),
@@ -48,6 +50,8 @@ def niah_single_2(**kwargs):
             type_needle_k="words",
             type_needle_v="numbers",
             num_samples=500,
+            shuffle=shuffle,
+            enable_cache=enable_cache,
             TOKENIZER=get_tokenizer(**kwargs),
         )
         for seq in seq_lengths
