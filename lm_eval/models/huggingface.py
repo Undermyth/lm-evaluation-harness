@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Union
 
 import jinja2
 import torch
+import fla
 import torch.nn.functional as F
 import transformers
 from accelerate import (

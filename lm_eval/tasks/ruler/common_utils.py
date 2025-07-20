@@ -21,10 +21,14 @@ DEFAULT_SEQ_LENGTHS = [
 def get_tokenizer(
     tokenizer=None, pretrained=None, **kwargs
 ) -> Union["transformers.PreTrainedTokenizer", "transformers.PreTrainedTokenizerFast"]:
-    pretrained = tokenizer or pretrained
-    assert pretrained, "No tokenizer or pretrained provided."
-    eval_logger.info(f"Using tokenizer {pretrained} for synthetic tasks.")
-    return AutoTokenizer.from_pretrained(pretrained, trust_remote_code=True)
+    try:
+        pretrained = tokenizer or pretrained
+        assert pretrained, "No tokenizer or pretrained provided."
+        eval_logger.info(f"Using tokenizer {pretrained} for synthetic tasks.")
+        return AutoTokenizer.from_pretrained(pretrained, trust_remote_code=True)
+    except:
+        eval_logger.info("Using tokenizer Qwen/Qwen3-0.6B-Base for synthetic tasks.")
+        return AutoTokenizer.from_pretrained('Qwen/Qwen3-0.6B-Base', local_files_only=True)
 
 
 def postprocess_pred(prediction: list[str]) -> list[str]:
