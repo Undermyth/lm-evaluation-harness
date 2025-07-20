@@ -52,9 +52,9 @@ def niah_single_2(**kwargs):
 
     # read config from metadata and log it
     shuffle = kwargs.pop("shuffle", False)
-    enable_cache = kwargs.pop("shuffle", False)
+    enable_cache = kwargs.pop("enable_cache", False)
     num_samples = kwargs.pop("num_samples", 500)  # Default number of samples
-    config_log = {"shuffle": shuffle, "enable_cache": enable_cache, "samples": num_samples, "template": TEMPLATE}
+    config_log = {"shuffle": shuffle, "enable_cache": enable_cache, "samples": num_samples, "template": template}
     eval_logger.info(f"NIAH-2 Configuration: {config_log}")
     eval_logger.info("Generating samples for niah_single_2...")
     
@@ -62,7 +62,7 @@ def niah_single_2(**kwargs):
         generate_samples(
             get_haystack(type_haystack="essay"),
             max_seq_length=seq,
-            template=TEMPLATE,
+            template=template,
             type_haystack="essay",
             type_needle_k="words",
             type_needle_v="numbers",
@@ -107,17 +107,17 @@ def niah_single_word(**kwargs):
 
     # read config from metadata and log it
     shuffle = kwargs.pop("shuffle", False)
-    enable_cache = kwargs.pop("shuffle", False)
+    enable_cache = kwargs.pop("enable_cache", False)
     num_samples = kwargs.pop("num_samples", 500)  # Default number of samples
-    config_log = {"shuffle": shuffle, "enable_cache": enable_cache, "samples": num_samples, "template": TEMPLATE}
-    eval_logger.info(f"NIAH-2 Configuration: {config_log}")
-    eval_logger.info("Generating samples for niah_single_2...")
+    config_log = {"shuffle": shuffle, "enable_cache": enable_cache, "samples": num_samples, "template": template}
+    eval_logger.info(f"NIAH-Word Configuration: {config_log}")
+    eval_logger.info("Generating samples for niah_single_word...")
     
     return download_dataset(
         generate_samples(
             get_haystack(type_haystack="essay"),
             max_seq_length=seq,
-            template=TEMPLATE,
+            template=template,
             type_haystack="essay",
             type_needle_k="words",
             type_needle_v="words",
