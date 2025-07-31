@@ -1,6 +1,8 @@
 import copy
+import random
 import logging
 import os
+import copy
 from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Union
@@ -38,6 +40,40 @@ from lm_eval.models.utils import (
     postprocess_generated_text,
     stop_sequences_criteria,
 )
+
+def extend_ones_maxpool(mask: torch.Tensor, n: int) -> torch.Tensor:
+    """
+    使用 F.pad 和 MaxPool1d 在每个1的右侧填充n个1（修正版）。
+
+    Args:
+        mask (torch.Tensor): 一维的0/1张量。
+        n (int): 要在右侧填充的元素数量。
+
+    Returns:
+        torch.Tensor: 修改后的mask。
+    """
+    if n == 0:
+        return mask
+
+    # 增加batch和channel维度以适配max_pool1d
+    mask_batched = mask.view(1, 1, -1).float()
+
+    # 1. 手动在左侧填充 n 个 0
+    # F.pad的格式是 (左侧填充数, 右侧填充数)，作用于最后一个维度
+    padded_mask = F.pad(mask_batched, (n, 0))
+
+    # 2. 在已填充的张量上应用max_pool1d，此时padding应为0
+    # 输入长度为 L+n, kernel_size 为 n+1
+    # 输出长度 = (L+n) - (n+1) + 1 = L，尺寸正好匹配，无需裁剪
+    pool = F.max_pool1d(
+        padded_mask,
+        kernel_size=n + 1,
+        stride=1,
+        padding=0
+    )
+
+    # 移除batch和channel维度，并转回long类型
+    return pool.squeeze()
 
 
 if TYPE_CHECKING:
@@ -100,6 +136,8 @@ class HFLM(TemplateLM):
         # end token for thinking, either the string or int token id.
         # splits to get response after this token (if provided).
         think_end_token: Union[str, int, None] = None,
+        apply_digit_mask: Optional[bool] = False,
+        use_random_mask: Optional[bool] = False,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -227,7 +265,8 @@ class HFLM(TemplateLM):
         # access self._model through self.model property outside this method
         if isinstance(self.model, torch.nn.Module):
             self.model.eval()
-            self.model.tie_weights()
+            if hasattr(self.model, "tie_weights"):
+                self.model.tie_weights()
 
         self.think_end_token = (
             int(think_end_token)
@@ -325,6 +364,11 @@ class HFLM(TemplateLM):
             eval_logger.info(
                 f"Loglikelihood prefix token id used in evaluation: {self.prefix_token_id}"
             )
+
+        self.apply_digit_mask = apply_digit_mask
+        self.use_random_mask = use_random_mask
+        if self.apply_digit_mask:
+            assert self.batch_size == 1, "Digit masking only works with batch size 1"
 
     def _get_accelerate_args(
         self,
@@ -935,6 +979,20 @@ class HFLM(TemplateLM):
                         transformers.AutoModelForCausalLM,
                         transformers.AutoModelForVision2Seq,
                     )
+
+                    if self.apply_digit_mask:
+                        tokens = self.tokenizer.convert_ids_to_tokens(inps[0])
+                        digit_mask = [token.isdigit() for token in tokens]
+                        window_size = 4
+                        if self.use_random_mask:
+                            digit_mask = [1 if random.random() < 0.04 else 0 for _ in tokens]
+                            window_size = 0
+                        digit_mask = torch.Tensor(digit_mask).float().to(self.device)
+                        digit_mask = extend_ones_maxpool(digit_mask, n=window_size)
+                        for name, module in self._model.named_modules():
+                            if name.endswith(".attn"):
+                                module.digit_mask = digit_mask
+
                     return self.model(inps).logits
 
     def _model_generate(self, context, max_length, stop, **generation_kwargs):
@@ -1410,6 +1468,23 @@ class HFLM(TemplateLM):
             elif self.backend == "seq2seq":
                 # max len for inputs = encoder's whole max_length
                 max_ctx_len = self.max_length
+
+            if self.apply_digit_mask:
+                tokens = self.tokenizer.encode(contexts[0])
+                tokens = self.tokenizer.convert_ids_to_tokens(tokens)
+                digit_mask = [token.isdigit() for token in tokens]
+                window_size = 4
+                if self.use_random_mask:
+                    print(f'[debug] random mask')
+                    digit_mask = [1 if random.random() < 0.04 else 0 for _ in tokens]
+                    window_size = 0
+                digit_mask = torch.Tensor(digit_mask).float().to(self.device)
+                digit_mask = extend_ones_maxpool(digit_mask, n=window_size)
+                # print(digit_mask.sum() / digit_mask.size(0))
+
+                for name, module in self._model.named_modules():
+                    if name.endswith(".attn"):
+                        module.digit_mask = digit_mask
 
             # encode, pad, and truncate contexts for this batch
             context_enc, attn_masks = self.tok_batch_encode(

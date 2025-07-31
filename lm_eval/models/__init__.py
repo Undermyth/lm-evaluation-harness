@@ -9,6 +9,7 @@ from . import (
     huggingface,
     ibm_watsonx_ai,
     mamba_lm,
+    rwkv_lm,
     nemo_lm,
     neuron_optimum,
     openai_completions,

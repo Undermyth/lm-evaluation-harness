@@ -57,7 +57,7 @@ def niah_single_2(**kwargs):
     config_log = {"shuffle": shuffle, "enable_cache": enable_cache, "samples": num_samples, "template": template}
     eval_logger.info(f"NIAH-2 Configuration: {config_log}")
     eval_logger.info("Generating samples for niah_single_2...")
-    
+
     return download_dataset(
         generate_samples(
             get_haystack(type_haystack="essay"),
@@ -112,7 +112,7 @@ def niah_single_word(**kwargs):
     config_log = {"shuffle": shuffle, "enable_cache": enable_cache, "samples": num_samples, "template": template}
     eval_logger.info(f"NIAH-Word Configuration: {config_log}")
     eval_logger.info("Generating samples for niah_single_word...")
-    
+
     return download_dataset(
         generate_samples(
             get_haystack(type_haystack="essay"),

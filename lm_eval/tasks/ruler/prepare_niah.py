@@ -235,7 +235,7 @@ def generate_samples(
     assert TOKENIZER is not None, "TOKENIZER is not defined."
     if shuffle:
         assert type_haystack == "essay", "Shuffling is only supported for essay haystacks."
-    
+
     if enable_cache:
         import os
         import json
@@ -260,7 +260,7 @@ def generate_samples(
             print(f"[RULER benchmark] Loading cached dataset from {cache_file}")
             with open(cache_file, "r") as f:
                 return [json.loads(line) for line in f]
-    
+
     num_needle_k = max(num_needle_k, num_needle_q)
     write_jsons = []
     tokens_to_generate = tokens_to_generate
@@ -366,7 +366,7 @@ def generate_samples(
                 f"Needle not in input: {formatted_output}. Something went wrong."
             )
         write_jsons.append(formatted_output)
-    
+
     if enable_cache:
         with open(cache_file, "w") as f:
             for sample in write_jsons:

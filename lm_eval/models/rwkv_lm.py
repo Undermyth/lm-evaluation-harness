@@ -11,6 +11,7 @@ os.environ["RWKV_V7_ON"] = '1'
 os.environ["RWKV_JIT_ON"] = "1"
 os.environ["RWKV_CUDA_ON"] = "1"
 
+
 def rwkv_forward(
     model,
     input_ids: torch.Tensor,
@@ -56,12 +57,12 @@ def rwkv_generate(
     token_count = max_length - ctx.shape[1]
     state = None
     # [copy start]
-    all_tokens = []
+    all_tokens = [0] + ctx[0].tolist()
     occurrence = {}
     for i in range(token_count):
 
         # forward & adjust prob.
-        tokens = ctx[0].tolist() if i == 0 else [token]
+        tokens = all_tokens if i == 0 else [token]
         while len(tokens) > 0:
             out, state = pipeline.model.forward(tokens[:args.chunk_len], state)
             tokens = tokens[args.chunk_len:]
@@ -88,7 +89,9 @@ def rwkv_generate(
         else:
             occurrence[token] += www
     # [copy end]
-    return torch.Tensor(all_tokens).unsqueeze(0)
+    res = torch.Tensor(all_tokens[1:]).unsqueeze(0)
+    # print(f'[debug] res: {tokenizer.decode(res[0], skip_special_tokens=True)}')
+    return res
 
 
 
@@ -104,23 +107,23 @@ class RWKVWrapper(HFLM):
         from rwkv.utils import PIPELINE
         if "backend" in kwargs:
             assert kwargs["backend"] == "causal"
+        kwargs["max_length"] = kwargs.get("max_length", 2048)
+        self._config = AutoConfig.from_pretrained(tokenizer)
         super().__init__(
             pretrained=pretrained,
             backend="causal",
             tokenizer=tokenizer,
-            max_length=2048,
             **kwargs
         )
-        self._config = AutoConfig.from_pretrained(tokenizer)
         self.pipeline = PIPELINE(self._model, "rwkv_vocab_v20230424")
 
     def _create_model(self, pretrained: str, **kwargs):
         from rwkv.model import RWKV
-        model = RWKV(model=pretrained, strategy="cuda fp16")
+        model = RWKV(model=pretrained, strategy="cuda bf16")
         self._model = model
 
     def _get_config(self, pretrained: str, *args, **kwargs) -> None:
-        return None
+        pass
 
     def _model_call(self, inps, attn_mask=None, labels=None):
         """
