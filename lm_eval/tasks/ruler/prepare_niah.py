@@ -68,9 +68,7 @@ def cached_sent_tokenize(text: str) -> List[str]:
 
 def download_nltk_resources():
     """Download 'punkt' if not already installed"""
-    assert (nltk_version := parse_version(version("nltk"))) >= parse_version(
-        NLTK_MIN_VERSION
-    ), (
+    assert (nltk_version := parse_version(version("nltk"))) >= parse_version(NLTK_MIN_VERSION), (
         f"`nltk` version {nltk_version} is not >= {NLTK_MIN_VERSION}. Please update `nltk` before proceeding--older versions are vulnerable to a remote code execution vulnerability."
     )
 
@@ -146,15 +144,10 @@ def generate_input_output(
     if type_haystack == "essay":
         assert isinstance(haystack, list)
         text = " ".join(haystack[:num_haystack])
-        document_sents = cached_sent_tokenize(text.strip()) # [comment] a list of sentences
+        document_sents = cached_sent_tokenize(text.strip())  # [comment] a list of sentences
         insertion_positions = (
             [0]
-            + sorted(
-                [
-                    int(len(document_sents) * (depth / 100))
-                    for depth in random.sample(DEPTHS, len(needles))
-                ]
-            )
+            + sorted([int(len(document_sents) * (depth / 100)) for depth in random.sample(DEPTHS, len(needles))])
             + [len(document_sents)]
         )
         document_sents_list = []
@@ -188,11 +181,7 @@ def generate_input_output(
     indices = random.sample(range(num_needle_k), num_needle_q)
     queries = [keys[i] for i in indices]
     answers = [a for i in indices for a in values[i]]
-    query = (
-        ", ".join(queries[:-1]) + ", and " + queries[-1]
-        if len(queries) > 1
-        else queries[0]
-    )
+    query = ", ".join(queries[:-1]) + ", and " + queries[-1] if len(queries) > 1 else queries[0]
 
     template = template
     type_needle_v = type_needle_v
@@ -230,7 +219,7 @@ def generate_samples(
     remove_newline_tab: bool = False,
     random_seed: int = 42,
     shuffle: bool = False,
-    enable_cache: bool = False
+    enable_cache: bool = False,
 ) -> list[dict]:
     assert TOKENIZER is not None, "TOKENIZER is not defined."
     if shuffle:
@@ -240,6 +229,7 @@ def generate_samples(
         import os
         import json
         from pathlib import Path
+
         cache_file_name = (
             "niah"
             f"-name={re.sub('/', '_', TOKENIZER.name_or_path)}"
@@ -249,9 +239,7 @@ def generate_samples(
             f"-valtype={type_needle_v}"
             f"-numkey={num_needle_k}"
             f"-numval={num_needle_v}"
-            f"-numq={num_needle_q}"
-            + ("-shuffle" if shuffle else "")
-            + ".jsonl"
+            f"-numq={num_needle_q}" + ("-shuffle" if shuffle else "") + ".jsonl"
         )
         cache_dir = os.path.expanduser("~/.cache/lmeval")
         os.makedirs(cache_dir, exist_ok=True)
@@ -283,8 +271,8 @@ def generate_samples(
         total_tokens = 0  # Track the total tokens generated for the first example
         while total_tokens + tokens_to_generate < max_seq_length:
             input_text, answer, query = generate_input_output(
-                num_haystack,   # [comment] increase in unit of words
-                haystack,       # [comment] a list of words
+                num_haystack,  # [comment] increase in unit of words
+                haystack,  # [comment] a list of words
                 type_haystack=type_haystack,
                 num_needle_k=num_needle_k,
                 type_needle_k=type_needle_k,
@@ -347,9 +335,7 @@ def generate_samples(
                     used_haystack -= incremental
 
         if remove_newline_tab:
-            input_text = " ".join(
-                input_text.replace("\n", " ").replace("\t", " ").strip().split()
-            )
+            input_text = " ".join(input_text.replace("\n", " ").replace("\t", " ").strip().split())
 
         formatted_output = {
             "index": index,
@@ -362,9 +348,7 @@ def generate_samples(
             else f"The special magic {type_needle_v} for {query} mentioned in the provided text are",
         }
         if formatted_output["outputs"][0] not in formatted_output["input"]:
-            assert False, (
-                f"Needle not in input: {formatted_output}. Something went wrong."
-            )
+            assert False, f"Needle not in input: {formatted_output}. Something went wrong."
         write_jsons.append(formatted_output)
 
     if enable_cache:
@@ -375,13 +359,15 @@ def generate_samples(
     return write_jsons
 
 
-@cache
+# @cache
 def get_haystack(
     type_haystack: Literal["essay", "repeat", "needle"],
+    shuffle: bool = False,
 ) -> Union[list[str], str]:
     NEEDLE = "One of the special magic {type_needle_v} for {key} is: {value}."
     if type_haystack == "essay":
         essay = datasets.load_dataset("baber/paul_graham_essays", split="train")["text"]
+        random.shuffle(essay) if shuffle else None
         essay = " ".join(essay)
         haystack = re.sub(r"\s+", " ", essay).split(" ")
     elif type_haystack == "repeat":

@@ -8,16 +8,13 @@ from lm_eval.tasks.ruler.common_utils import DEFAULT_SEQ_LENGTHS, get_tokenizer
 from lm_eval.tasks.ruler.prepare_niah import generate_samples, get_haystack
 from lm_eval.tasks.ruler.template import RWKV_TEMPLATE
 
+
 TEMPLATE = """Some special magic {type_needle_v} are hidden within the following text. Make sure to memorize it. I will quiz you about the {type_needle_v} for {query} afterwards.\n{context}\nWhat are all the special magic {type_needle_v} for {query} mentioned in the provided text?"""
 eval_logger = logging.getLogger(__name__)
 
 
 def download_dataset(df: Generator) -> dict[str, datasets.Dataset]:
-    return {
-        "test": datasets.Dataset.from_list(
-            list(itertools.chain.from_iterable(df)), split=datasets.Split.TEST
-        )
-    }
+    return {"test": datasets.Dataset.from_list(list(itertools.chain.from_iterable(df)), split=datasets.Split.TEST)}
 
 
 def niah_single_1(**kwargs):
@@ -52,15 +49,22 @@ def niah_single_2(**kwargs):
 
     # read config from metadata and log it
     shuffle = kwargs.pop("shuffle", False)
+    shuffle_once = kwargs.pop("shuffle_once", False)
     enable_cache = kwargs.pop("enable_cache", False)
     num_samples = kwargs.pop("num_samples", 500)  # Default number of samples
-    config_log = {"shuffle": shuffle, "enable_cache": enable_cache, "samples": num_samples, "template": template}
+    config_log = {
+        "shuffle_once": shuffle_once,
+        "shuffle": shuffle,
+        "enable_cache": enable_cache,
+        "samples": num_samples,
+        "template": template,
+    }
     eval_logger.info(f"NIAH-2 Configuration: {config_log}")
     eval_logger.info("Generating samples for niah_single_2...")
 
     return download_dataset(
         generate_samples(
-            get_haystack(type_haystack="essay"),
+            get_haystack(type_haystack="essay", shuffle=shuffle_once),
             max_seq_length=seq,
             template=template,
             type_haystack="essay",
