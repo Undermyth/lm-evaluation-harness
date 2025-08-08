@@ -122,7 +122,7 @@ def generate_input_output(
     num_needle_q: int = 1,
     random_seed: int = RANDOM_SEED,
 ) -> tuple[str, list[str], str]:
-    NEEDLE = "One of the special magic {type_needle_v} for {key} is: {value}."
+    NEEDLE = "The passkey for {key} is: {value}."
     keys, values, needles = [], [], []
     for _ in range(num_needle_k):
         keys.append(generate_random(type_needle_k))
@@ -343,7 +343,7 @@ def generate_samples(
             "outputs": answer,
             "length": length,
             "max_length": max_seq_length,
-            "gen_prefix": f"The special magic {type_needle_v[:-1]} for {query} mentioned in the provided text is"
+            "gen_prefix": f"The passkey for {query} mentioned in the provided text is"
             if num_needle_q * num_needle_v == 1
             else f"The special magic {type_needle_v} for {query} mentioned in the provided text are",
         }

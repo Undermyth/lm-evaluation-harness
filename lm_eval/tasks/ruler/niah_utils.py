@@ -10,6 +10,8 @@ from lm_eval.tasks.ruler.template import RWKV_TEMPLATE
 
 
 TEMPLATE = """Some special magic {type_needle_v} are hidden within the following text. Make sure to memorize it. I will quiz you about the {type_needle_v} for {query} afterwards.\n{context}\nWhat are all the special magic {type_needle_v} for {query} mentioned in the provided text?"""
+TEMPLATE = """Some passkey are hidden within the following text. Make sure to memorize it. I will quiz you about the passkey for {query} afterwards.\n{context}\nWhat are all the passkey for {query} mentioned in the provided text?"""
+# TEMPLATE = """Some special magic {type_needle_v} are hidden within the following text. Make sure to memorize it. I will quiz you about the {type_needle_v} afterwards.\n{context}\nWhat are all the special magic {type_needle_v} for {query} mentioned in the provided text?"""
 eval_logger = logging.getLogger(__name__)
 
 
