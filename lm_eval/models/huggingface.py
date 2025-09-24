@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 import copy
-import random
 import logging
 import os
+import random
 from collections.abc import Iterator, Sequence
-import copy
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 import jinja2
 import torch
-import fla
 import torch.nn.functional as F
 import transformers
 from accelerate import (
@@ -44,6 +42,9 @@ from lm_eval.models.utils import (
     stop_sequences_criteria,
 )
 
+import fla
+
+
 def extend_ones_maxpool(mask: torch.Tensor, n: int) -> torch.Tensor:
     """
     使用 F.pad 和 MaxPool1d 在每个1的右侧填充n个1（修正版）。
@@ -68,12 +69,7 @@ def extend_ones_maxpool(mask: torch.Tensor, n: int) -> torch.Tensor:
     # 2. 在已填充的张量上应用max_pool1d，此时padding应为0
     # 输入长度为 L+n, kernel_size 为 n+1
     # 输出长度 = (L+n) - (n+1) + 1 = L，尺寸正好匹配，无需裁剪
-    pool = F.max_pool1d(
-        padded_mask,
-        kernel_size=n + 1,
-        stride=1,
-        padding=0
-    )
+    pool = F.max_pool1d(padded_mask, kernel_size=n + 1, stride=1, padding=0)
 
     # 移除batch和channel维度，并转回long类型
     return pool.squeeze()
@@ -106,10 +102,7 @@ class HFLM(TemplateLM):
         # override whether the model should be treated as decoder-only (causal) or encoder-decoder (seq2seq)
         revision: str | None = "main",
         subfolder: str = "",
-        tokenizer: str
-        | transformers.PreTrainedTokenizer
-        | transformers.PreTrainedTokenizerFast
-        | None = None,
+        tokenizer: str | transformers.PreTrainedTokenizer | transformers.PreTrainedTokenizerFast | None = None,
         truncation: bool | None = False,
         logits_cache: bool = True,
         max_length: int | None = None,
@@ -193,31 +186,19 @@ class HFLM(TemplateLM):
                 if device and device in device_list:
                     self._device = torch.device(device)
                     eval_logger.info(f"Using device '{device}'")
-                    if device in ("mps", "mps:0") and version.parse(
-                        torch.__version__
-                    ) < version.parse("2.1"):
-                        raise RuntimeError(
-                            f"mps requires torch >= 2.1. You have {torch.__version__}"
-                        )
+                    if device in ("mps", "mps:0") and version.parse(torch.__version__) < version.parse("2.1"):
+                        raise RuntimeError(f"mps requires torch >= 2.1. You have {torch.__version__}")
                 else:
                     eval_logger.info("Device not specified")
                     eval_logger.info(f"Cuda Available? {torch.cuda.is_available()}")
-                    self._device = (
-                        torch.device("cuda")
-                        if torch.cuda.is_available()
-                        else torch.device("cpu")
-                    )
+                    self._device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
             else:  # Parallelism managed by accelerate
                 if device != "cuda":
                     eval_logger.info(
                         f"Using `accelerate launch` or `parallelize=True`, device '{device}' will be overridden when placing model."
                     )
                 # TODO: include in warning that `load_in_8bit` etc. affect this too
-                self._device = (
-                    self.accelerator.device
-                    if hasattr(self, "accelerator")
-                    else torch.device(device)
-                )
+                self._device = self.accelerator.device if hasattr(self, "accelerator") else torch.device(device)
 
             revision = str(revision)  # cast to string if not already one
 
@@ -230,9 +211,7 @@ class HFLM(TemplateLM):
             )
 
             # determine which of 'causal' and 'seq2seq' backends to use for HF models
-        self._get_backend(
-            config=self.config, backend=backend, trust_remote_code=trust_remote_code
-        )
+        self._get_backend(config=self.config, backend=backend, trust_remote_code=trust_remote_code)
 
         # load tokenizer so we know tokenizer vocabulary size before loading model and PEFT
         self._create_tokenizer(
@@ -246,9 +225,9 @@ class HFLM(TemplateLM):
             add_bos_token=add_bos_token,
         )
 
-        if (
-            quantization_config := getattr(self.config, "quantization_config", None)
-        ) is not None and isinstance(quantization_config, dict):
+        if (quantization_config := getattr(self.config, "quantization_config", None)) is not None and isinstance(
+            quantization_config, dict
+        ):
             from transformers.quantizers import AutoQuantizationConfig
 
             quantization_config = AutoQuantizationConfig.from_dict(quantization_config)
@@ -292,9 +271,7 @@ class HFLM(TemplateLM):
         # select (or create) a pad token to use
         self.tokenizer = configure_pad_token(self.tokenizer, model_config=self.config)
         self.chat_template_args = (
-            chat_template_args or {} | dict(enable_thinking=enable_thinking)
-            if enable_thinking is not None
-            else {}
+            chat_template_args or {} | dict(enable_thinking=enable_thinking) if enable_thinking is not None else {}
         )
 
         self.add_bos_token = add_bos_token
@@ -312,14 +289,8 @@ class HFLM(TemplateLM):
         self.batch_schedule = 1
         self.batch_sizes = {}
         self.max_batch_size = max_batch_size
-        self.softmax_dtype = (
-            get_dtype(softmax_dtype) if softmax_dtype is not None else None
-        )
-        self.mixed_precision_dtype = (
-            get_dtype(mixed_precision_dtype)
-            if mixed_precision_dtype is not None
-            else None
-        )
+        self.softmax_dtype = get_dtype(softmax_dtype) if softmax_dtype is not None else None
+        self.mixed_precision_dtype = get_dtype(mixed_precision_dtype) if mixed_precision_dtype is not None else None
 
         if str(batch_size).startswith("auto"):
             batch_size = batch_size.split(":")
@@ -357,9 +328,7 @@ class HFLM(TemplateLM):
                             f"Current run will proceed with {accelerator.num_processes} devices."
                         )
                         if self.accelerator.is_local_main_process:
-                            eval_logger.info(
-                                f"Using {gpus} devices with data parallelism"
-                            )
+                            eval_logger.info(f"Using {gpus} devices with data parallelism")
 
                     self._device = torch.device(f"{accelerator.device}")
                     self.accelerator = accelerator
@@ -380,9 +349,7 @@ class HFLM(TemplateLM):
 
         self.custom_prefix_token_id = prefix_token_id
         if prefix_token_id is not None:
-            eval_logger.info(
-                f"Loglikelihood prefix token id used in evaluation: {self.prefix_token_id}"
-            )
+            eval_logger.info(f"Loglikelihood prefix token id used in evaluation: {self.prefix_token_id}")
 
         self.apply_digit_mask = apply_digit_mask
         self.use_random_mask = use_random_mask
@@ -401,14 +368,8 @@ class HFLM(TemplateLM):
         """Returns the kwargs needed to apply `accelerate` in `AutoModel.from_pretrained`."""
         num_local_processes = int(os.environ.get("LOCAL_WORLD_SIZE", 1))
         num_machines = int(os.environ.get("WORLD_SIZE", 0)) // num_local_processes
-        if (
-            num_machines == 0
-            and hasattr(self, "accelerator")
-            and self.accelerator is not None
-        ):
-            eval_logger.info(
-                "We are not in a distributed setting for accelerate. Setting model_parallel to False."
-            )
+        if num_machines == 0 and hasattr(self, "accelerator") and self.accelerator is not None:
+            eval_logger.info("We are not in a distributed setting for accelerate. Setting model_parallel to False.")
             parallelize = False
 
         if parallelize is None:
@@ -429,9 +390,7 @@ class HFLM(TemplateLM):
         if parallelize:  # Model parallelism will be used
             max_memory = {}
             if max_memory_per_gpu is not None:  # Using the provided memory requirements
-                max_memory_per_gpu_map = {
-                    device_idx: max_memory_per_gpu for device_idx in range(gpus)
-                }
+                max_memory_per_gpu_map = {device_idx: max_memory_per_gpu for device_idx in range(gpus)}
             else:  # Estimating the possible memory requirements
                 max_memory_all_gpus = get_max_memory()
                 max_memory_all_gpus.pop("cpu", None)
@@ -440,8 +399,7 @@ class HFLM(TemplateLM):
                     max_memory_per_gpu_map = {
                         k: v
                         for k, v in max_memory_all_gpus.items()
-                        if k % num_local_processes
-                        == (self.accelerator.process_index % num_local_processes)
+                        if k % num_local_processes == (self.accelerator.process_index % num_local_processes)
                     }
                 else:
                     max_memory_per_gpu_map = max_memory_all_gpus
@@ -456,9 +414,7 @@ class HFLM(TemplateLM):
                 max_memory["cpu"] = max_cpu_memory
 
             args["offload_folder"] = offload_folder
-        elif (
-            device_map is None
-        ):  # No model parallelism, we use the default provided device for our model
+        elif device_map is None:  # No model parallelism, we use the default provided device for our model
             if hasattr(self, "accelerator"):
                 device_map = {"": f"{self.accelerator.device}"}
             else:
@@ -561,23 +517,16 @@ class HFLM(TemplateLM):
             # if we've settled on non-default backend, use that manually
             if backend in ["causal", "seq2seq"]:
                 self.backend = backend
-            eval_logger.info(
-                f"Overrode HF model backend type, and using type '{self.backend}'"
-            )
+            eval_logger.info(f"Overrode HF model backend type, and using type '{self.backend}'")
         else:
             # determine and use the default HF backend for this model, based on its config + metadata.
-            if (
-                getattr(config, "model_type", None)
-                in MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES
-            ):
+            if getattr(config, "model_type", None) in MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES:
                 # first check if model type is listed under seq2seq models, since some
                 # models like MBart are listed in both seq2seq and causal mistakenly in HF transformers.
                 # these special cases should be treated as seq2seq models.
                 self.backend = "seq2seq"
                 eval_logger.debug(f"Using model type '{self.backend}'")
-            elif (
-                getattr(config, "model_type", None) in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES
-            ):
+            elif getattr(config, "model_type", None) in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES:
                 self.backend = "causal"
                 eval_logger.debug(f"Using model type '{self.backend}'")
             else:
@@ -590,9 +539,7 @@ class HFLM(TemplateLM):
                 # if model type is neither in HF transformers causal or seq2seq model registries
                 # then we default to assuming AutoModelForCausalLM
                 self.backend = "causal"
-                eval_logger.info(
-                    f"Model type cannot be determined. Using default model type '{self.backend}'"
-                )
+                eval_logger.info(f"Model type cannot be determined. Using default model type '{self.backend}'")
 
         if self.AUTO_MODEL_CLASS is None:
             if self.backend == "causal":
@@ -685,9 +632,7 @@ class HFLM(TemplateLM):
             )
         else:
             if autogptq and gptqmodel:
-                raise ValueError(
-                    "Cannot use both 'autogptq' and 'gptqmodel' options at the same time."
-                )
+                raise ValueError("Cannot use both 'autogptq' and 'gptqmodel' options at the same time.")
 
             if autogptq:
                 try:
@@ -702,9 +647,7 @@ class HFLM(TemplateLM):
                     pretrained,
                     trust_remote_code=trust_remote_code,
                     model_basename=None if autogptq is True else Path(autogptq).stem,
-                    use_safetensors=True
-                    if autogptq is True
-                    else autogptq.endswith(".safetensors"),
+                    use_safetensors=True if autogptq is True else autogptq.endswith(".safetensors"),
                     **model_kwargs,
                 )
 
@@ -717,28 +660,20 @@ class HFLM(TemplateLM):
                         "please install gptqmodel via `pip install gptqmodel --no-build-isolation` or `pip install lm-eval[gptqmodel] --no-build-isolation`",
                     ) from exception
 
-                self._model = GPTQModel.from_quantized(
-                    pretrained, trust_remote_code=trust_remote_code, **model_kwargs
-                )
+                self._model = GPTQModel.from_quantized(pretrained, trust_remote_code=trust_remote_code, **model_kwargs)
 
         if peft and delta:
-            raise ValueError(
-                "Cannot use both 'peft' and 'delta' options at the same time."
-            )
+            raise ValueError("Cannot use both 'peft' and 'delta' options at the same time.")
 
         if peft:
             from peft import PeftModel
             from peft import __version__ as PEFT_VERSION
 
-            if model_kwargs.get("load_in_4bit") and vparse(PEFT_VERSION) < vparse(
-                "0.4.0"
-            ):
+            if model_kwargs.get("load_in_4bit") and vparse(PEFT_VERSION) < vparse("0.4.0"):
                 raise AssertionError("load_in_4bit requires peft >= 0.4.0")
 
             # Compatible with Gemma3 (multimodal) and old models
-            if hasattr(self._model.config, "text_config") and hasattr(
-                self._model.config.text_config, "vocab_size"
-            ):
+            if hasattr(self._model.config, "text_config") and hasattr(self._model.config.text_config, "vocab_size"):
                 vocab_size = self._model.config.text_config.vocab_size
             else:
                 vocab_size = self._model.config.vocab_size
@@ -749,14 +684,10 @@ class HFLM(TemplateLM):
                     f"Model config indicates vocab_size='{vocab_size}', but found tokenizer with vocab size '{len(self.tokenizer)}'. Resizing model embedding layer..."
                 )
                 self._model.resize_token_embeddings(len(self.tokenizer))
-            self._model = PeftModel.from_pretrained(
-                self._model, peft, revision=revision
-            )
+            self._model = PeftModel.from_pretrained(self._model, peft, revision=revision)
         elif delta:
             if autogptq:
-                eval_logger.warning(
-                    "Delta weights might trigger unexpected behavior when used with AutoGPTQ."
-                )
+                eval_logger.warning("Delta weights might trigger unexpected behavior when used with AutoGPTQ.")
             _model_delta = self.AUTO_MODEL_CLASS.from_pretrained(
                 delta,
                 revision=revision,
@@ -768,23 +699,16 @@ class HFLM(TemplateLM):
                 try:
                     param.data += _model_delta.state_dict()[name]
                 except KeyError as e:
-                    raise KeyError(
-                        f"Delta model is missing weights for layer: {name}"
-                    ) from e
+                    raise KeyError(f"Delta model is missing weights for layer: {name}") from e
                 except Exception as e:
-                    raise RuntimeError(
-                        f"Failed to add delta weights to layer {name}. Error: {e}"
-                    ) from e
+                    raise RuntimeError(f"Failed to add delta weights to layer {name}. Error: {e}") from e
 
             del _model_delta
 
     def _create_tokenizer(
         self,
         pretrained: str | transformers.PreTrainedModel,
-        tokenizer: str
-        | transformers.PreTrainedTokenizer
-        | transformers.PreTrainedTokenizerFast
-        | None,
+        tokenizer: str | transformers.PreTrainedTokenizer | transformers.PreTrainedTokenizerFast | None,
         revision: str | None = "main",
         trust_remote_code: bool | None = False,
         use_fast_tokenizer: bool | None = True,
@@ -816,9 +740,7 @@ class HFLM(TemplateLM):
 
         if tokenizer:
             if isinstance(tokenizer, str):
-                self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                    tokenizer, **kwargs
-                )
+                self.tokenizer = transformers.AutoTokenizer.from_pretrained(tokenizer, **kwargs)
             else:
                 assert isinstance(
                     tokenizer,
@@ -835,16 +757,12 @@ class HFLM(TemplateLM):
             else:
                 # get the HF hub name via accessor on model
                 model_name = self.model.name_or_path
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                model_name, **kwargs
-            )
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_name, **kwargs)
 
     def _detect_batch_size(self, requests: Sequence | None = None, pos: int = 0):
         if requests:
             _, context_enc, continuation_enc = requests[pos]
-            max_length = len(
-                (context_enc + continuation_enc)[-(self.max_length + 1) :][:-1]
-            )
+            max_length = len((context_enc + continuation_enc)[-(self.max_length + 1) :][:-1])
             max_context_enc = len(context_enc[-(self.max_length + 1) :])
             max_cont_enc = len(continuation_enc[-(self.max_length + 1) :])
         else:
@@ -857,9 +775,7 @@ class HFLM(TemplateLM):
         def forward_batch(batch_size: int):
             if self.backend == "seq2seq":
                 length = max(max_context_enc, max_cont_enc)
-                batched_conts = torch.ones(
-                    (batch_size, length), device=self.device
-                ).long()
+                batched_conts = torch.ones((batch_size, length), device=self.device).long()
                 test_batch = torch.ones((batch_size, length), device=self.device).long()
                 call_kwargs = {
                     "attn_mask": test_batch,
@@ -867,9 +783,7 @@ class HFLM(TemplateLM):
                 }
             else:
                 call_kwargs = {}
-                test_batch = torch.ones(
-                    (batch_size, max_length), device=self.device
-                ).long()
+                test_batch = torch.ones((batch_size, max_length), device=self.device).long()
             for _ in range(5):
                 out = F.log_softmax(  # noqa: F841
                     self._model_call(test_batch, **call_kwargs),
@@ -890,9 +804,7 @@ class HFLM(TemplateLM):
         if self.world_size > 1:
             # if multi-GPU, always take minimum over all selected batch sizes
             max_rnk_bs = torch.tensor([batch_size], device=self.device)
-            gathered = (
-                self.accelerator.gather(max_rnk_bs).cpu().detach().numpy().tolist()
-            )
+            gathered = self.accelerator.gather(max_rnk_bs).cpu().detach().numpy().tolist()
             batch_size = min(gathered)
             clear_torch_cache()
             return batch_size
@@ -914,9 +826,7 @@ class HFLM(TemplateLM):
         # by default for CausalLM - false or self.add_bos_token is set
         if add_special_tokens is None:
             if self.backend == "causal":
-                special_tokens_kwargs = {
-                    "add_special_tokens": False or self.add_bos_token
-                }
+                special_tokens_kwargs = {"add_special_tokens": False or self.add_bos_token}
         # otherwise the method explicitly defines the value
         else:
             special_tokens_kwargs = {"add_special_tokens": add_special_tokens}
@@ -959,9 +869,7 @@ class HFLM(TemplateLM):
                     f"truncating to last {left_truncate_len} tokens. Some content will be lost.",
                 )
             encoding["input_ids"] = encoding["input_ids"][:, -left_truncate_len:]
-            encoding["attention_mask"] = encoding["attention_mask"][
-                :, -left_truncate_len:
-            ]
+            encoding["attention_mask"] = encoding["attention_mask"][:, -left_truncate_len:]
         self.tokenizer.padding_side = old_padding_side
 
         return encoding["input_ids"], encoding["attention_mask"]
@@ -1001,27 +909,25 @@ class HFLM(TemplateLM):
             if attn_mask is not None or labels is not None:
                 assert attn_mask is not None and labels is not None
                 assert transformers.AutoModelForSeq2SeqLM == self.AUTO_MODEL_CLASS
-                return self.model(
-                    input_ids=inps, attention_mask=attn_mask, labels=labels
-                ).logits
+                return self.model(input_ids=inps, attention_mask=attn_mask, labels=labels).logits
 
             assert self.AUTO_MODEL_CLASS in (
                 transformers.AutoModelForCausalLM,
                 transformers.AutoModelForVision2Seq,
             )
 
-                    if self.apply_digit_mask:
-                        tokens = self.tokenizer.convert_ids_to_tokens(inps[0])
-                        digit_mask = [token.isdigit() for token in tokens]
-                        window_size = 4
-                        if self.use_random_mask:
-                            digit_mask = [1 if random.random() < 0.04 else 0 for _ in tokens]
-                            window_size = 0
-                        digit_mask = torch.Tensor(digit_mask).float().to(self.device)
-                        digit_mask = extend_ones_maxpool(digit_mask, n=window_size)
-                        for name, module in self._model.named_modules():
-                            if name.endswith(".attn"):
-                                module.digit_mask = digit_mask
+            if self.apply_digit_mask:
+                tokens = self.tokenizer.convert_ids_to_tokens(inps[0])
+                digit_mask = [token.isdigit() for token in tokens]
+                window_size = 4
+                if self.use_random_mask:
+                    digit_mask = [1 if random.random() < 0.04 else 0 for _ in tokens]
+                    window_size = 0
+                digit_mask = torch.Tensor(digit_mask).float().to(self.device)
+                digit_mask = extend_ones_maxpool(digit_mask, n=window_size)
+                for name, module in self._model.named_modules():
+                    if name.endswith(".attn"):
+                        module.digit_mask = digit_mask
 
             return self.model(inps).logits
 
@@ -1046,9 +952,7 @@ class HFLM(TemplateLM):
         if do_sample is False and generation_kwargs.get("temperature") == 0.0:
             generation_kwargs.pop("temperature")
         # build stopping criteria
-        stopping_criteria = stop_sequences_criteria(
-            self.tokenizer, stop, context.shape[1], context.shape[0]
-        )
+        stopping_criteria = stop_sequences_criteria(self.tokenizer, stop, context.shape[1], context.shape[0])
         with torch.autocast(
             device_type=self.device.type,
             dtype=self.mixed_precision_dtype,
@@ -1070,25 +974,19 @@ class HFLM(TemplateLM):
         inplen: int | None = None,
     ) -> torch.Tensor:
         if self.backend == "causal":
-            assert contlen and inplen, (
-                "Must pass input len and cont. len to select scored logits for causal LM"
-            )
+            assert contlen and inplen, "Must pass input len and cont. len to select scored logits for causal LM"
             # discard right-padding.
             # also discard the input/context tokens. we'll only score continuations.
             logits = logits[inplen - contlen : inplen]
         elif self.backend == "seq2seq":
-            assert contlen and not inplen, (
-                "Selecting scored logits for Seq2SeqLM requires only cont. len"
-            )
+            assert contlen and not inplen, "Selecting scored logits for Seq2SeqLM requires only cont. len"
             # only discard right-padding.
             # the logits input to this fn only contain decoder-side tokens.
             logits = logits[:contlen]
 
         return logits
 
-    def loglikelihood_rolling(
-        self, requests: list[Instance], disable_tqdm: bool = False
-    ) -> list[float]:
+    def loglikelihood_rolling(self, requests: list[Instance], disable_tqdm: bool = False) -> list[float]:
         adaptive_batch_size = None
         if self.batch_size == "auto":
             # using rolling window with maximum context
@@ -1166,9 +1064,7 @@ class HFLM(TemplateLM):
             current_idx += window_count
 
             string = requests[len(loglikelihoods) - 1].args[0]
-            self.cache_hook.add_partial(
-                "loglikelihood_rolling", (string,), request_total
-            )
+            self.cache_hook.add_partial("loglikelihood_rolling", (string,), request_total)
 
         return loglikelihoods
 
@@ -1176,15 +1072,11 @@ class HFLM(TemplateLM):
         sched = pos // int(len(n_reordered_requests) / self.batch_schedule)
         if sched in self.batch_sizes:
             return self.batch_sizes[sched]
-        if (len(self.batch_sizes) > 1) and (
-            self.batch_sizes[sched - 1] == self.max_batch_size
-        ):
+        if (len(self.batch_sizes) > 1) and (self.batch_sizes[sched - 1] == self.max_batch_size):
             # if previous batch size is already maximal, skip recomputation
             self.batch_sizes[sched] = self.max_batch_size
             return self.batch_sizes[sched]
-        print(
-            f"Passed argument batch_size = auto:{self.batch_schedule}. Detecting largest batch size"
-        )
+        print(f"Passed argument batch_size = auto:{self.batch_schedule}. Detecting largest batch size")
         self.batch_sizes[sched] = self._detect_batch_size(n_reordered_requests, pos)
         print(f"Determined largest batch size: {self.batch_sizes[sched]}")
         return self.batch_sizes[sched]
@@ -1221,27 +1113,17 @@ class HFLM(TemplateLM):
         re_ord = Collator(
             requests,
             sort_fn=_collate,
-            group_by="contexts"
-            if self.backend == "causal" and self.logits_cache
-            else None,
+            group_by="contexts" if self.backend == "causal" and self.logits_cache else None,
             group_fn=_lookup_one_token_cont,
         )
 
         # automatic (variable) batch size detection for vectorization
         # pull longest context sample from request
         n_reordered_requests = len(re_ord)
-        batch_size = (
-            self.batch_size
-            if self.batch_size != "auto"
-            else override_bs
-            if override_bs is not None
-            else 0
-        )
+        batch_size = self.batch_size if self.batch_size != "auto" else override_bs if override_bs is not None else 0
         batch_fn = (
             self._batch_scheduler
-            if self.batch_size == "auto"
-            and n_reordered_requests > 0
-            and not override_bs
+            if self.batch_size == "auto" and n_reordered_requests > 0 and not override_bs
             else None
         )
 
@@ -1315,17 +1197,9 @@ class HFLM(TemplateLM):
 
                     conts.append(cont)
 
-                    padding_len_cont = (
-                        max(padding_len_cont, contlen)
-                        if padding_len_cont is not None
-                        else contlen
-                    )
+                    padding_len_cont = max(padding_len_cont, contlen) if padding_len_cont is not None else contlen
 
-                padding_len_inp = (
-                    max(padding_len_inp, inplen)
-                    if padding_len_inp is not None
-                    else inplen
-                )
+                padding_len_inp = max(padding_len_inp, inplen) if padding_len_inp is not None else inplen
 
                 inps.append(inp)  # [1, inp_length]
                 cont_toks_list.append(continuation_enc)
@@ -1334,20 +1208,12 @@ class HFLM(TemplateLM):
             # create encoder attn mask and batched conts, if seq2seq
             call_kwargs = {}
             if self.backend == "causal":
-                batched_inps = pad_and_concat(
-                    padding_len_inp, inps, padding_side="right"
-                )  # [batch, padding_len_inp]
+                batched_inps = pad_and_concat(padding_len_inp, inps, padding_side="right")  # [batch, padding_len_inp]
             elif self.backend == "seq2seq":
                 # TODO: left-pad encoder inps and mask?
-                batched_inps = pad_and_concat(
-                    padding_len_inp, inps
-                )  # [batch, padding_len_inp]
-                batched_conts = pad_and_concat(
-                    padding_len_cont, conts
-                )  # [batch, padding_len_cont]
-                batched_encoder_mask = pad_and_concat(
-                    padding_len_inp, encoder_attns
-                )  # [batch, padding_len_inp]
+                batched_inps = pad_and_concat(padding_len_inp, inps)  # [batch, padding_len_inp]
+                batched_conts = pad_and_concat(padding_len_cont, conts)  # [batch, padding_len_cont]
+                batched_encoder_mask = pad_and_concat(padding_len_inp, encoder_attns)  # [batch, padding_len_inp]
                 call_kwargs = {
                     "attn_mask": batched_encoder_mask,
                     "labels": batched_conts,
@@ -1368,11 +1234,7 @@ class HFLM(TemplateLM):
                 # (discard context toks if decoder-only ; discard right-padding)
                 # also discards + checks for "virtual tokens" in the causal LM's input window
                 # from prompt/prefix tuning tokens, if applicable
-                ctx_len = (
-                    inplen + (logits.shape[0] - padding_len_inp)
-                    if self.backend == "causal"
-                    else None
-                )
+                ctx_len = inplen + (logits.shape[0] - padding_len_inp) if self.backend == "causal" else None
                 logits = self._select_cont_toks(logits, contlen=contlen, inplen=ctx_len)
                 logits = logits.unsqueeze(0)  # [1, seq, vocab]
 
@@ -1390,21 +1252,15 @@ class HFLM(TemplateLM):
                     cont_toks=cont_toks,
                     logits=logits,
                 ):
-                    cont_toks = torch.tensor(
-                        cont_toks, dtype=torch.long, device=self.device
-                    ).unsqueeze(0)  # [1, seq]
+                    cont_toks = torch.tensor(cont_toks, dtype=torch.long, device=self.device).unsqueeze(0)  # [1, seq]
                     # Use trailing slice [-cont_toks.shape[1]:] to handle variable length cont_len (but same ctx+cont[:-1]).
                     # i.e. continuations can be sliced at diff points. Collator ensures we have sufficient greedy_tokens
                     # by choosing key with longest cont if group_by="contexts".
-                    max_equal = (
-                        greedy_tokens[:, -cont_toks.shape[1] :] == cont_toks
-                    ).all()
+                    max_equal = (greedy_tokens[:, -cont_toks.shape[1] :] == cont_toks).all()
 
                     # Obtain log-probs at the corresponding continuation token indices
                     # last_token_slice = logits[:, -1, :].squeeze(0).tolist()
-                    logits = torch.gather(logits, 2, cont_toks.unsqueeze(-1)).squeeze(
-                        -1
-                    )  # [1, seq]
+                    logits = torch.gather(logits, 2, cont_toks.unsqueeze(-1)).squeeze(-1)  # [1, seq]
 
                     # Answer: (log prob, is-exact-match)
                     answer = (float(logits.sum()), bool(max_equal))
@@ -1415,18 +1271,14 @@ class HFLM(TemplateLM):
                         # special case: loglikelihood_rolling produces a number of loglikelihood requests
                         # all with cache key None. instead do add_partial on the per-example level
                         # in the loglikelihood_rolling() function for those.
-                        self.cache_hook.add_partial(
-                            "loglikelihood", request_str, answer
-                        )
+                        self.cache_hook.add_partial("loglikelihood", request_str, answer)
                     pbar.update(1)
 
         pbar.close()
 
         return re_ord.get_original(res)
 
-    def generate_until(
-        self, requests: list[Instance], disable_tqdm: bool = False
-    ) -> list[str]:
+    def generate_until(self, requests: list[Instance], disable_tqdm: bool = False) -> list[str]:
         res = []
 
         def _collate(req: tuple[str, dict]):
@@ -1460,11 +1312,7 @@ class HFLM(TemplateLM):
             if adaptive_batch_size is not None
             else 0
         )
-        batch_fn = (
-            self._batch_scheduler
-            if self.batch_size == "auto" and not adaptive_batch_size
-            else None
-        )
+        batch_fn = self._batch_scheduler if self.batch_size == "auto" and not adaptive_batch_size else None
 
         # we group requests by their generation_kwargs,
         # so that we don't try to execute e.g. greedy sampling and temp=0.8 sampling
@@ -1489,9 +1337,7 @@ class HFLM(TemplateLM):
                 # add EOS token to stop sequences
                 until = handle_stop_sequences(kwargs.pop("until", None), eos=eos)
             else:
-                raise TypeError(
-                    f"Expected `kwargs` to be of type `dict` but got {type(gen_kwargs)}"
-                )
+                raise TypeError(f"Expected `kwargs` to be of type `dict` but got {type(gen_kwargs)}")
             if "max_gen_toks" in kwargs:
                 max_gen_toks = kwargs.pop("max_gen_toks")
             else:
@@ -1514,7 +1360,7 @@ class HFLM(TemplateLM):
                 digit_mask = [token.isdigit() for token in tokens]
                 window_size = 4
                 if self.use_random_mask:
-                    print(f'[debug] random mask')
+                    print("[debug] random mask")
                     digit_mask = [1 if random.random() < 0.04 else 0 for _ in tokens]
                     window_size = 0
                 digit_mask = torch.Tensor(digit_mask).float().to(self.device)
@@ -1537,6 +1383,8 @@ class HFLM(TemplateLM):
             if "max_length" not in kwargs:
                 kwargs["max_length"] = context_enc.shape[1] + max_gen_toks
 
+            # kwargs["max_new_tokens"] = max_gen_toks
+
             # perform batched generation
             cont = self._model_generate(
                 context=context_enc,
@@ -1553,11 +1401,7 @@ class HFLM(TemplateLM):
 
                 # Handle integer think_end_token: find last occurrence and strip tokens after it
                 if isinstance(self.think_end_token, int):
-                    think_token_indices = [
-                        i
-                        for i, token in enumerate(cont_toks)
-                        if token == self.think_end_token
-                    ]
+                    think_token_indices = [i for i, token in enumerate(cont_toks) if token == self.think_end_token]
                     if think_token_indices:
                         cont_toks = cont_toks[think_token_indices[-1] + 1 :]
 
@@ -1571,9 +1415,7 @@ class HFLM(TemplateLM):
                 s = postprocess_generated_text(
                     generation=s,
                     stop=until,
-                    think_end_token=self.think_end_token
-                    if isinstance(self.think_end_token, str)
-                    else None,
+                    think_end_token=self.think_end_token if isinstance(self.think_end_token, str) else None,
                 )
                 res.append(s)
 
@@ -1586,9 +1428,7 @@ class HFLM(TemplateLM):
 
         return res
 
-    def apply_chat_template(
-        self, chat_history: list[dict[str, str]], add_generation_prompt: bool = True
-    ) -> str:
+    def apply_chat_template(self, chat_history: list[dict[str, str]], add_generation_prompt: bool = True) -> str:
         """Method to apply a chat template to a list of chat history between user and model."""
         try:
             chat_templated = self.tokenizer.apply_chat_template(
@@ -1599,9 +1439,7 @@ class HFLM(TemplateLM):
                 **self.chat_template_args,
             )
         except jinja2.exceptions.TemplateError:
-            eval_logger.warning(
-                "Failed to apply chat template. removing the system role in chat history."
-            )
+            eval_logger.warning("Failed to apply chat template. removing the system role in chat history.")
             chat_history = [msg for msg in chat_history if msg["role"] != "system"]
             chat_templated = self.tokenizer.apply_chat_template(
                 chat_history,
@@ -1635,9 +1473,7 @@ class HFLM(TemplateLM):
                 model_info = HfApi().model_info(repo_id=pretrained, revision=revision)
                 return model_info.sha
             except Exception as e:
-                eval_logger.debug(
-                    f"Failed to get model SHA for {pretrained} at revision {revision}. Error: {e}"
-                )
+                eval_logger.debug(f"Failed to get model SHA for {pretrained} at revision {revision}. Error: {e}")
                 return ""
 
         model_info = {
