@@ -54,7 +54,14 @@ class MambaLMWrapper(HFLM):
         if "backend" in kwargs:
             # mamba currently only supports causal models
             assert kwargs["backend"] == "causal"
-        self.is_hf = is_hf or (True if pretrained.endswith("hf") else False)
+
+        if isinstance(pretrained, str):
+            self.is_hf = is_hf or (True if pretrained.endswith("hf") else False)
+        else:
+            self.is_hf = False
+
+        self.is_longmamba = kwargs.pop("longmamba", False)
+        self.merge_config = kwargs.pop("merge_config", None)
         super().__init__(
             pretrained=pretrained,
             # set appropriate defaults for tokenizer, max length, etc
@@ -103,19 +110,25 @@ class MambaLMWrapper(HFLM):
                     "attempted to use 'mamba_ssm' LM type, but package `mamba_ssm` is not installed. \
     please install mamba via `pip install lm-eval[mamba]` or `pip install -e .[mamba]`",
                 )
+            mamba = MambaLMHeadModel
 
-            self._model = MambaLMHeadModel.from_pretrained(
+            model_kwargs = {}
+            if kwargs.get("decimation_config", None) is not None:
+                model_kwargs.update({"decimation_config": kwargs["decimation_config"]})
+                if kwargs["decimation_config"]["decimating_layers"] == []:
+                    from mamba_ssm.models.mixer_seq_simple import DecimatingMambaModel
+
+                    mamba = DecimatingMambaModel
+
+            self._model = mamba.from_pretrained(
                 pretrained,
                 device=self._device,
-                dtype=torch.float16
-                if dtype == "auto"
-                else lm_eval.models.utils.get_dtype(dtype),
+                dtype=torch.float16 if dtype == "auto" else lm_eval.models.utils.get_dtype(dtype),
+                **model_kwargs,
             )
 
     def _model_generate(self, context, max_length, stop, **generation_kwargs):
-        remove_arg = (
-            ["attention_mask"] if self.is_hf else ["do_sample", "attention_mask"]
-        )
+        remove_arg = ["attention_mask"] if self.is_hf else ["do_sample", "attention_mask"]
         for key in remove_arg:
             if key in generation_kwargs:
                 generation_kwargs.pop(key)
@@ -128,6 +141,9 @@ class MambaLMWrapper(HFLM):
         # stopping_criteria = stop_sequences_criteria(
         #     self.tokenizer, stop, 1, context.shape[0]
         # )
+
+        if self.is_longmamba:
+            generation_kwargs["merge_config"] = self.merge_config
 
         if not self.is_hf:
             return self.model.generate(

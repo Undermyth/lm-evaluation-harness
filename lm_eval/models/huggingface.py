@@ -391,6 +391,7 @@ class HFLM(TemplateLM):
             max_memory = {}
             if max_memory_per_gpu is not None:  # Using the provided memory requirements
                 max_memory_per_gpu_map = {device_idx: max_memory_per_gpu for device_idx in range(gpus)}
+                max_memory_per_gpu_map = {device_idx: max_memory_per_gpu for device_idx in range(gpus)}
             else:  # Estimating the possible memory requirements
                 max_memory_all_gpus = get_max_memory()
                 max_memory_all_gpus.pop("cpu", None)
@@ -399,6 +400,7 @@ class HFLM(TemplateLM):
                     max_memory_per_gpu_map = {
                         k: v
                         for k, v in max_memory_all_gpus.items()
+                        if k % num_local_processes == (self.accelerator.process_index % num_local_processes)
                         if k % num_local_processes == (self.accelerator.process_index % num_local_processes)
                     }
                 else:
@@ -633,6 +635,7 @@ class HFLM(TemplateLM):
         else:
             if autogptq and gptqmodel:
                 raise ValueError("Cannot use both 'autogptq' and 'gptqmodel' options at the same time.")
+                raise ValueError("Cannot use both 'autogptq' and 'gptqmodel' options at the same time.")
 
             if autogptq:
                 try:
@@ -763,6 +766,7 @@ class HFLM(TemplateLM):
         if requests:
             _, context_enc, continuation_enc = requests[pos]
             max_length = len((context_enc + continuation_enc)[-(self.max_length + 1) :][:-1])
+            max_length = len((context_enc + continuation_enc)[-(self.max_length + 1) :][:-1])
             max_context_enc = len(context_enc[-(self.max_length + 1) :])
             max_cont_enc = len(continuation_enc[-(self.max_length + 1) :])
         else:
@@ -826,6 +830,7 @@ class HFLM(TemplateLM):
         # by default for CausalLM - false or self.add_bos_token is set
         if add_special_tokens is None:
             if self.backend == "causal":
+                special_tokens_kwargs = {"add_special_tokens": False or self.add_bos_token}
                 special_tokens_kwargs = {"add_special_tokens": False or self.add_bos_token}
         # otherwise the method explicitly defines the value
         else:
@@ -967,6 +972,7 @@ class HFLM(TemplateLM):
                 **generation_kwargs,
             )
 
+    def _select_cont_toks(self, logits: torch.Tensor, contlen: int = None, inplen: int = None) -> torch.Tensor:
     def _select_cont_toks(
         self,
         logits: torch.Tensor,
@@ -975,10 +981,12 @@ class HFLM(TemplateLM):
     ) -> torch.Tensor:
         if self.backend == "causal":
             assert contlen and inplen, "Must pass input len and cont. len to select scored logits for causal LM"
+            assert contlen and inplen, "Must pass input len and cont. len to select scored logits for causal LM"
             # discard right-padding.
             # also discard the input/context tokens. we'll only score continuations.
             logits = logits[inplen - contlen : inplen]
         elif self.backend == "seq2seq":
+            assert contlen and not inplen, "Selecting scored logits for Seq2SeqLM requires only cont. len"
             assert contlen and not inplen, "Selecting scored logits for Seq2SeqLM requires only cont. len"
             # only discard right-padding.
             # the logits input to this fn only contain decoder-side tokens.
@@ -986,6 +994,7 @@ class HFLM(TemplateLM):
 
         return logits
 
+    def loglikelihood_rolling(self, requests: List[Instance], disable_tqdm: bool = False) -> List[float]:
     def loglikelihood_rolling(self, requests: list[Instance], disable_tqdm: bool = False) -> list[float]:
         adaptive_batch_size = None
         if self.batch_size == "auto":
@@ -1278,7 +1287,7 @@ class HFLM(TemplateLM):
 
         return re_ord.get_original(res)
 
-    def generate_until(self, requests: list[Instance], disable_tqdm: bool = False) -> list[str]:
+    def generate_until(self, requests: List[Instance], disable_tqdm: bool = False) -> List[str]:
         res = []
 
         def _collate(req: tuple[str, dict]):
@@ -1337,8 +1346,8 @@ class HFLM(TemplateLM):
                 # add EOS token to stop sequences
                 until = handle_stop_sequences(kwargs.pop("until", None), eos=eos)
             else:
-                raise TypeError(f"Expected `kwargs` to be of type `dict` but got {type(gen_kwargs)}")
-            if "max_gen_toks" in kwargs:
+                raise ValueError(f"Expected `kwargs` to be of type `dict` but got {type(gen_kwargs)}")
+            if "max_gen_toks" in kwargs.keys():
                 max_gen_toks = kwargs.pop("max_gen_toks")
             else:
                 max_gen_toks = self.max_gen_toks
@@ -1360,7 +1369,7 @@ class HFLM(TemplateLM):
                 digit_mask = [token.isdigit() for token in tokens]
                 window_size = 4
                 if self.use_random_mask:
-                    print("[debug] random mask")
+                    print(f"[debug] random mask")
                     digit_mask = [1 if random.random() < 0.04 else 0 for _ in tokens]
                     window_size = 0
                 digit_mask = torch.Tensor(digit_mask).float().to(self.device)
@@ -1392,6 +1401,9 @@ class HFLM(TemplateLM):
                 stop=until,
                 **kwargs,
             )
+
+            if isinstance(cont, tuple):
+                cont = cont[0]
 
             cont_toks_list = cont.tolist()
             for cont_toks, context in zip(cont_toks_list, contexts):
@@ -1428,8 +1440,10 @@ class HFLM(TemplateLM):
 
         return res
 
-    def apply_chat_template(self, chat_history: list[dict[str, str]], add_generation_prompt: bool = True) -> str:
-        """Method to apply a chat template to a list of chat history between user and model."""
+    def apply_chat_template(self, chat_history: List[Dict[str, str]], add_generation_prompt: bool = True) -> str:
+        """
+        Method to apply a chat template to a list of chat history between user and model.
+        """
         try:
             chat_templated = self.tokenizer.apply_chat_template(
                 chat_history,
