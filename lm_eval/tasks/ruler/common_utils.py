@@ -25,7 +25,10 @@ def get_tokenizer(
         pretrained = tokenizer or pretrained
         assert pretrained, "No tokenizer or pretrained provided."
         eval_logger.info(f"Using tokenizer {pretrained} for synthetic tasks.")
-        return AutoTokenizer.from_pretrained(pretrained, trust_remote_code=True)
+        if isinstance(pretrained, str):
+            return AutoTokenizer.from_pretrained(pretrained, trust_remote_code=True)
+        else:
+            return pretrained
     except:
         eval_logger.info("Using tokenizer Qwen/Qwen3-0.6B-Base for synthetic tasks.")
         return AutoTokenizer.from_pretrained('Qwen/Qwen3-0.6B-Base', local_files_only=True)
