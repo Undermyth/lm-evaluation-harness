@@ -163,14 +163,22 @@ def simple_evaluate(
     start_date = time.time()
 
     if limit is not None and samples is not None:
-        raise ValueError("Either 'limit' or 'samples' must be None, but both are not None.")
+        raise ValueError(
+            "Either 'limit' or 'samples' must be None, but both are not None."
+        )
 
     _NEEDS_CHAT_TEMPLATE = ("inst", "chat")
     if (
-        (isinstance(model_args, str) and any(kw in model_args.lower() for kw in _NEEDS_CHAT_TEMPLATE))
+        (
+            isinstance(model_args, str)
+            and any(kw in model_args.lower() for kw in _NEEDS_CHAT_TEMPLATE)
+        )
         or (
             isinstance(model_args, dict)
-            and any(any(kw in str(v).lower() for kw in _NEEDS_CHAT_TEMPLATE) for v in model_args.values())
+            and any(
+                any(kw in str(v).lower() for kw in _NEEDS_CHAT_TEMPLATE)
+                for v in model_args.values()
+            )
         )
     ) and not apply_chat_template:
         eval_logger.warning(
@@ -208,7 +216,9 @@ def simple_evaluate(
     if tasks is None:
         tasks = []
     if len(tasks) == 0:
-        raise ValueError("No tasks specified, or no tasks found. Please verify the task names.")
+        raise ValueError(
+            "No tasks specified, or no tasks found. Please verify the task names."
+        )
 
     if gen_kwargs:
         if isinstance(gen_kwargs, str):
@@ -226,7 +236,9 @@ def simple_evaluate(
             model_args = ""
 
         if isinstance(model_args, dict):
-            eval_logger.info(f"Initializing {model} model, with arguments: {model_args}")
+            eval_logger.info(
+                f"Initializing {model} model, with arguments: {model_args}"
+            )
             lm = lm_eval.api.registry.get_model(model).create_from_arg_obj(
                 model_args,
                 {
@@ -238,7 +250,9 @@ def simple_evaluate(
 
         else:
             eval_logger.info(
-                wrap_text(f"Initializing {model} model, with arguments: {simple_parse_args_string(model_args)}")
+                wrap_text(
+                    f"Initializing {model} model, with arguments: {simple_parse_args_string(model_args)}"
+                )
             )
             lm = lm_eval.api.registry.get_model(model).create_from_arg_string(
                 model_args,
@@ -335,7 +349,9 @@ def simple_evaluate(
             model_source=model if isinstance(model, str) else "CUSTOM",
             model_args=model_args or "",
             system_instruction=system_instruction,
-            chat_template=lm.chat_template(apply_chat_template) if apply_chat_template else None,
+            chat_template=lm.chat_template(apply_chat_template)
+            if apply_chat_template
+            else None,
             fewshot_as_multiturn=fewshot_as_multiturn,
         )
 
@@ -460,7 +476,9 @@ def evaluate(
     """
 
     if limit is not None and samples is not None:
-        raise ValueError("Either 'limit' or 'samples' must be None, but both are not None.")
+        raise ValueError(
+            "Either 'limit' or 'samples' must be None, but both are not None."
+        )
     if samples is not None:
         eval_logger.info(f"Evaluating examples for tasks {list(samples.keys())}")
     # tracks all Instances/requests a model must generate output on.
@@ -536,7 +554,6 @@ def evaluate(
         eval_logger.debug(
             f"Task: {task_name}; number of requests on this rank: {len(task.instances)}"
         )
-        eval_logger.debug(f"Task: {task_output.task_name}; number of requests on this rank: {len(task.instances)}")
         if write_out:
             print_writeout(task)
         # aggregate Instances by LM method requested to get output.
@@ -552,7 +569,11 @@ def evaluate(
             )
             gathered_item = lm.all_gather(instances_rnk).cpu().detach().numpy().tolist()
             # "multiple_choice" task types dispatch (several) "loglikelihood" request types
-            reqtype = "loglikelihood" if task.OUTPUT_TYPE == "multiple_choice" else task.OUTPUT_TYPE
+            reqtype = (
+                "loglikelihood"
+                if task.OUTPUT_TYPE == "multiple_choice"
+                else task.OUTPUT_TYPE
+            )
             # compute number of pseudo-batches to pad with (FSDP/DDP require even batches among ranks)
             numpad = max(gathered_item) - gathered_item[lm.rank]
             # todo: may not account for padding in cases like SquadV2 which has multiple req types
@@ -611,7 +632,9 @@ def evaluate(
             for doc_id, doc in doc_iterator:
                 doc_id_true = indices[doc_id] if indices else doc_id
                 requests = instances_by_doc_id[doc_id]
-                metrics = task.process_results(doc, [req.filtered_resps[filter_key] for req in requests])
+                metrics = task.process_results(
+                    doc, [req.filtered_resps[filter_key] for req in requests]
+                )
                 if log_samples:
                     target = task.doc_to_target(doc)
                     example = {
@@ -620,7 +643,9 @@ def evaluate(
                         "target": target,
                         "arguments": [req.args for req in requests],
                         "resps": [req.resps for req in requests],
-                        "filtered_resps": [req.filtered_resps[filter_key] for req in requests],
+                        "filtered_resps": [
+                            req.filtered_resps[filter_key] for req in requests
+                        ],
                         "filter": filter_key,
                         "metrics": list(metrics.keys()),
                         "doc_hash": hash_string(
