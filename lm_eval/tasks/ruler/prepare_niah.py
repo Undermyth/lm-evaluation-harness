@@ -183,8 +183,6 @@ def generate_input_output(
     answers = [a for i in indices for a in values[i]]
     query = ", ".join(queries[:-1]) + ", and " + queries[-1] if len(queries) > 1 else queries[0]
 
-    template = template
-    type_needle_v = type_needle_v
     if num_needle_q * num_needle_v == 1:
         template = template.replace("Some", "A")
         template = template.replace("are all", "is")
@@ -251,7 +249,6 @@ def generate_samples(
 
     num_needle_k = max(num_needle_k, num_needle_q)
     write_jsons = []
-    tokens_to_generate = tokens_to_generate
 
     if type_haystack == "essay":
         if max_seq_length <= 8192:

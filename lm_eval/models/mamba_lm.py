@@ -1,8 +1,7 @@
-from typing import Optional, Union
-
 import torch
 
 import lm_eval.models.utils
+import lm_eval.models.utils_hf
 from lm_eval.api.registry import register_model
 from lm_eval.models.huggingface import HFLM
 
@@ -85,14 +84,14 @@ class MambaLMWrapper(HFLM):
                 raise type(exception)(
                     "attempted to use 'mamba_ssm' LM type, but package `mamba_ssm` is not installed. \
     please install mamba via `pip install lm-eval[mamba]` or `pip install -e .[mamba]`",
-                )
+                ) from exception
 
             self._config = load_config_hf(pretrained)
 
     def _create_model(
         self,
         pretrained: str,
-        dtype: Optional[Union[str, torch.dtype]] = "float16",
+        dtype: str | torch.dtype | None = "float16",
         # no `parallelize=True` options
         # no PEFT and quantization options
         # Mamba does not support arbitrary HF from_pretrained() args
@@ -123,8 +122,9 @@ class MambaLMWrapper(HFLM):
             self._model = mamba.from_pretrained(
                 pretrained,
                 device=self._device,
-                dtype=torch.float16 if dtype == "auto" else lm_eval.models.utils.get_dtype(dtype),
-                **model_kwargs,
+                dtype=torch.float16
+                if dtype == "auto"
+                else lm_eval.models.utils_hf.get_dtype(dtype),
             )
 
     def _model_generate(self, context, max_length, stop, **generation_kwargs):
@@ -155,7 +155,7 @@ class MambaLMWrapper(HFLM):
                 **generation_kwargs,
             )
         else:
-            stopping_criteria = lm_eval.models.utils.stop_sequences_criteria(
+            stopping_criteria = lm_eval.models.utils_hf.stop_sequences_criteria(
                 self.tokenizer,
                 stop,
                 context.shape[1],
@@ -163,7 +163,7 @@ class MambaLMWrapper(HFLM):
             )
 
             generation_kwargs["temperature"] = generation_kwargs.get("temperature", 0.0)
-            do_sample = generation_kwargs.get("do_sample", None)
+            do_sample = generation_kwargs.get("do_sample")
 
             # The temperature has to be a strictly positive float -- if it is 0.0, use greedy decoding strategies
             if generation_kwargs.get("temperature") == 0.0 and do_sample is None:
