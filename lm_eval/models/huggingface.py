@@ -1169,7 +1169,6 @@ class HFLM(TemplateLM):
                 **generation_kwargs,
             )
 
-    def _select_cont_toks(self, logits: torch.Tensor, contlen: int = None, inplen: int = None) -> torch.Tensor:
     def _select_cont_toks(
         self,
         logits: torch.Tensor,
