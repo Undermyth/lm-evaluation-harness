@@ -21,17 +21,17 @@ DEFAULT_SEQ_LENGTHS = [
 def get_tokenizer(
     tokenizer=None, pretrained=None, **kwargs
 ) -> Union["transformers.PreTrainedTokenizer", "transformers.PreTrainedTokenizerFast"]:
-    try:
-        pretrained = tokenizer or pretrained
-        assert pretrained, "No tokenizer or pretrained provided."
-        eval_logger.info(f"Using tokenizer {pretrained} for synthetic tasks.")
-        if isinstance(pretrained, str):
-            return AutoTokenizer.from_pretrained(pretrained, trust_remote_code=True)
-        else:
-            return pretrained
-    except:
-        eval_logger.info("Using tokenizer Qwen/Qwen3-0.6B-Base for synthetic tasks.")
-        return AutoTokenizer.from_pretrained('Qwen/Qwen3-0.6B-Base', local_files_only=True)
+    pretrained = tokenizer or pretrained
+    if not pretrained:
+        raise ValueError(
+            "No tokenizer or pretrained provided. The synthetic RULER tasks need the model's tokenizer "
+            "to build length-controlled samples; please run with a model (or set `tokenizer` / `pretrained` "
+            "in the task metadata) instead of relying on a default tokenizer."
+        )
+    eval_logger.info(f"Using tokenizer {pretrained} for synthetic tasks.")
+    if isinstance(pretrained, str):
+        return AutoTokenizer.from_pretrained(pretrained, trust_remote_code=True)
+    return pretrained
 
 
 def postprocess_pred(prediction: list[str]) -> list[str]:

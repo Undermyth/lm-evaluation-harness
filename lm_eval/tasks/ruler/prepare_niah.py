@@ -20,6 +20,7 @@ import uuid
 from functools import lru_cache, cache
 from typing import List, Union, Literal
 import datasets
+import logging
 
 import numpy as np
 from packaging.version import parse as parse_version
@@ -37,6 +38,7 @@ except ImportError:
     )
 
 
+logger = logging.getLogger(__name__)
 NUM_SAMPLES = 500
 REMOVE_NEWLINE_TAB = ""
 STOP_WORDS = ""
@@ -220,8 +222,10 @@ def generate_samples(
     enable_cache: bool = False,
 ) -> list[dict]:
     assert TOKENIZER is not None, "TOKENIZER is not defined."
-    if shuffle:
-        assert type_haystack == "essay", "Shuffling is only supported for essay haystacks."
+    if shuffle and type_haystack != "essay":
+        logger.warning(f"shuffle is specified but the haystack type {type_haystack} is not supported. disable by default") 
+        shuffle = False
+        # assert type_haystack == "essay", "Shuffling is only supported for essay haystacks."
 
     if enable_cache:
         import os
@@ -237,7 +241,8 @@ def generate_samples(
             f"-valtype={type_needle_v}"
             f"-numkey={num_needle_k}"
             f"-numval={num_needle_v}"
-            f"-numq={num_needle_q}" + ("-shuffle" if shuffle else "") + ".jsonl"
+            f"-numq={num_needle_q}" 
+            f"-nsample={num_samples}" + ("-shuffle" if shuffle else "") + ".jsonl"
         )
         cache_dir = os.path.expanduser("~/.cache/lmeval")
         os.makedirs(cache_dir, exist_ok=True)

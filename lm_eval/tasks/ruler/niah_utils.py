@@ -17,34 +17,26 @@ def download_dataset(df: Generator) -> dict[str, datasets.Dataset]:
     return {"test": datasets.Dataset.from_list(list(itertools.chain.from_iterable(df)), split=datasets.Split.TEST)}
 
 
-def niah_single_1(**kwargs):
-    seq_lengths = kwargs.pop("max_seq_lengths", DEFAULT_SEQ_LENGTHS)
-    return download_dataset(
-        generate_samples(
-            get_haystack(type_haystack="repeat"),
-            max_seq_length=seq,
-            template=TEMPLATE,
-            type_haystack="repeat",
-            type_needle_k="words",
-            type_needle_v="numbers",
-            num_samples=500,
-            TOKENIZER=get_tokenizer(**kwargs),
-        )
-        for seq in seq_lengths
-    )
+def _prepare_niah_config(task_name: str, **kwargs) -> dict:
+    """Pop the shared niah task options from ``kwargs`` and log the config.
 
+    Popped options (all read from the task ``metadata``):
+      - ``use_template``: kept for backward compatibility, currently unused.
+      - ``shuffle``: shuffle the essay haystack for every sample (essay haystacks only,
+        ``generate_samples`` asserts otherwise).
+      - ``shuffle_once``: shuffle the essay corpus once before generating samples
+        (only has an effect for essay haystacks).
+      - ``enable_cache``: cache the generated samples on disk and reuse them on
+        subsequent runs with the same configuration.
+      - ``num_samples``: number of samples to generate (default 500).
 
-def niah_single_2(**kwargs):
-    seq_lengths = kwargs.pop("max_seq_lengths", DEFAULT_SEQ_LENGTHS)
-
+    Any remaining keyword arguments are forwarded to :func:`get_tokenizer`.
+    Returns a dict with the popped options plus the resolved ``tokenizer`` and
+    ``template``.
+    """
     # check for template
     use_template = kwargs.pop("use_template", False)
     tokenizer = get_tokenizer(**kwargs)
-    if use_template is True:
-        if "rwkv" in tokenizer.name_or_path:
-            template = RWKV_TEMPLATE.format(task_template=TEMPLATE)
-        else:
-            eval_logger.warning("Template is only supported for RWKV-7")
     template = TEMPLATE
 
     # read config from metadata and log it
@@ -59,21 +51,56 @@ def niah_single_2(**kwargs):
         "samples": num_samples,
         "template": template,
     }
-    eval_logger.info(f"NIAH-2 Configuration: {config_log}")
-    eval_logger.info("Generating samples for niah_single_2...")
+    eval_logger.info(f"{task_name} Configuration: {config_log}")
+    eval_logger.info(f"Generating samples for {task_name}...")
+
+    return {
+        "use_template": use_template,
+        "tokenizer": tokenizer,
+        "template": template,
+        "shuffle": shuffle,
+        "shuffle_once": shuffle_once,
+        "enable_cache": enable_cache,
+        "num_samples": num_samples,
+    }
+
+
+def niah_single_1(**kwargs):
+    seq_lengths = kwargs.pop("max_seq_lengths", DEFAULT_SEQ_LENGTHS)
+    opts = _prepare_niah_config("niah_single_1", **kwargs)
+    return download_dataset(
+        generate_samples(
+            get_haystack(type_haystack="repeat"),
+            max_seq_length=seq,
+            template=opts["template"],
+            type_haystack="repeat",
+            type_needle_k="words",
+            type_needle_v="numbers",
+            num_samples=opts["num_samples"],
+            shuffle=opts["shuffle"],
+            enable_cache=opts["enable_cache"],
+            TOKENIZER=opts["tokenizer"],
+        )
+        for seq in seq_lengths
+    )
+
+
+def niah_single_2(**kwargs):
+    seq_lengths = kwargs.pop("max_seq_lengths", DEFAULT_SEQ_LENGTHS)
+    opts = _prepare_niah_config("niah_single_2", **kwargs)
 
     return download_dataset(
         generate_samples(
-            get_haystack(type_haystack="essay", shuffle=shuffle_once),
+            get_haystack(type_haystack="essay", shuffle=opts["shuffle_once"]),
             max_seq_length=seq,
-            template=template,
+            template=opts["template"],
             type_haystack="essay",
             type_needle_k="words",
             type_needle_v="numbers",
-            num_samples=num_samples,
-            shuffle=shuffle,
-            enable_cache=enable_cache,
-            TOKENIZER=tokenizer,
+            num_samples=opts["num_samples"],
+            shuffle=opts["shuffle"],
+            enable_cache=opts["enable_cache"],
+            TOKENIZER=opts["tokenizer"],
         )
         for seq in seq_lengths
     )
@@ -81,16 +108,19 @@ def niah_single_2(**kwargs):
 
 def niah_single_3(**kwargs):
     seq_lengths = kwargs.pop("max_seq_lengths", DEFAULT_SEQ_LENGTHS)
+    opts = _prepare_niah_config("niah_single_3", **kwargs)
     return download_dataset(
         generate_samples(
-            get_haystack(type_haystack="essay"),
+            get_haystack(type_haystack="essay", shuffle=opts["shuffle_once"]),
             max_seq_length=seq,
-            template=TEMPLATE,
+            template=opts["template"],
             type_haystack="essay",
             type_needle_k="words",
             type_needle_v="uuids",
-            num_samples=500,
-            TOKENIZER=get_tokenizer(**kwargs),
+            num_samples=opts["num_samples"],
+            shuffle=opts["shuffle"],
+            enable_cache=opts["enable_cache"],
+            TOKENIZER=opts["tokenizer"],
         )
         for seq in seq_lengths
     )
@@ -98,37 +128,20 @@ def niah_single_3(**kwargs):
 
 def niah_single_word(**kwargs):
     seq_lengths = kwargs.pop("max_seq_lengths", DEFAULT_SEQ_LENGTHS)
-
-    # check for template
-    use_template = kwargs.pop("use_template", False)
-    tokenizer = get_tokenizer(**kwargs)
-    if use_template is True:
-        if "rwkv" in tokenizer.name_or_path:
-            template = RWKV_TEMPLATE.format(task_template=TEMPLATE)
-        else:
-            eval_logger.warning("Template is only supported for RWKV-7")
-    template = TEMPLATE
-
-    # read config from metadata and log it
-    shuffle = kwargs.pop("shuffle", False)
-    enable_cache = kwargs.pop("enable_cache", False)
-    num_samples = kwargs.pop("num_samples", 500)  # Default number of samples
-    config_log = {"shuffle": shuffle, "enable_cache": enable_cache, "samples": num_samples, "template": template}
-    eval_logger.info(f"NIAH-Word Configuration: {config_log}")
-    eval_logger.info("Generating samples for niah_single_word...")
+    opts = _prepare_niah_config("niah_single_word", **kwargs)
 
     return download_dataset(
         generate_samples(
-            get_haystack(type_haystack="essay"),
+            get_haystack(type_haystack="essay", shuffle=opts["shuffle_once"]),
             max_seq_length=seq,
-            template=template,
+            template=opts["template"],
             type_haystack="essay",
             type_needle_k="words",
             type_needle_v="words",
-            num_samples=num_samples,
-            shuffle=shuffle,
-            enable_cache=enable_cache,
-            TOKENIZER=tokenizer,
+            num_samples=opts["num_samples"],
+            shuffle=opts["shuffle"],
+            enable_cache=opts["enable_cache"],
+            TOKENIZER=opts["tokenizer"],
         )
         for seq in seq_lengths
     )
@@ -136,17 +149,20 @@ def niah_single_word(**kwargs):
 
 def niah_multikey_1(**kwargs):
     seq_lengths = kwargs.pop("max_seq_lengths", DEFAULT_SEQ_LENGTHS)
+    opts = _prepare_niah_config("niah_multikey_1", **kwargs)
     return download_dataset(
         generate_samples(
-            get_haystack(type_haystack="essay"),
+            get_haystack(type_haystack="essay", shuffle=opts["shuffle_once"]),
             max_seq_length=seq,
-            template=TEMPLATE,
+            template=opts["template"],
             type_haystack="essay",
             type_needle_k="words",
             type_needle_v="numbers",
             num_needle_k=4,
-            num_samples=500,
-            TOKENIZER=get_tokenizer(**kwargs),
+            num_samples=opts["num_samples"],
+            shuffle=opts["shuffle"],
+            enable_cache=opts["enable_cache"],
+            TOKENIZER=opts["tokenizer"],
         )
         for seq in seq_lengths
     )
@@ -154,16 +170,19 @@ def niah_multikey_1(**kwargs):
 
 def niah_multikey_2(**kwargs):
     seq_lengths = kwargs.pop("max_seq_lengths", DEFAULT_SEQ_LENGTHS)
+    opts = _prepare_niah_config("niah_multikey_2", **kwargs)
     return download_dataset(
         generate_samples(
             get_haystack(type_haystack="needle"),
             max_seq_length=seq,
-            template=TEMPLATE,
+            template=opts["template"],
             type_haystack="needle",
             type_needle_k="words",
             type_needle_v="numbers",
-            num_samples=500,
-            TOKENIZER=get_tokenizer(**kwargs),
+            num_samples=opts["num_samples"],
+            shuffle=opts["shuffle"],
+            enable_cache=opts["enable_cache"],
+            TOKENIZER=opts["tokenizer"],
         )
         for seq in seq_lengths
     )
@@ -171,16 +190,19 @@ def niah_multikey_2(**kwargs):
 
 def niah_multikey_3(**kwargs):
     seq_lengths = kwargs.pop("max_seq_lengths", DEFAULT_SEQ_LENGTHS)
+    opts = _prepare_niah_config("niah_multikey_3", **kwargs)
     return download_dataset(
         generate_samples(
             get_haystack(type_haystack="needle"),
             max_seq_length=seq,
-            template=TEMPLATE,
+            template=opts["template"],
             type_haystack="needle",
             type_needle_k="uuids",
             type_needle_v="uuids",
-            num_samples=500,
-            TOKENIZER=get_tokenizer(**kwargs),
+            num_samples=opts["num_samples"],
+            shuffle=opts["shuffle"],
+            enable_cache=opts["enable_cache"],
+            TOKENIZER=opts["tokenizer"],
         )
         for seq in seq_lengths
     )
@@ -188,17 +210,20 @@ def niah_multikey_3(**kwargs):
 
 def niah_multivalue(**kwargs):
     seq_lengths = kwargs.pop("max_seq_lengths", DEFAULT_SEQ_LENGTHS)
+    opts = _prepare_niah_config("niah_multivalue", **kwargs)
     return download_dataset(
         generate_samples(
-            get_haystack(type_haystack="essay"),
+            get_haystack(type_haystack="essay", shuffle=opts["shuffle_once"]),
             max_seq_length=seq,
-            template=TEMPLATE,
+            template=opts["template"],
             type_haystack="essay",
             type_needle_k="words",
             type_needle_v="numbers",
             num_needle_v=4,
-            num_samples=500,
-            TOKENIZER=get_tokenizer(**kwargs),
+            num_samples=opts["num_samples"],
+            shuffle=opts["shuffle"],
+            enable_cache=opts["enable_cache"],
+            TOKENIZER=opts["tokenizer"],
         )
         for seq in seq_lengths
     )
@@ -206,17 +231,20 @@ def niah_multivalue(**kwargs):
 
 def niah_multiquery(**kwargs):
     seq_lengths = kwargs.pop("max_seq_lengths", DEFAULT_SEQ_LENGTHS)
+    opts = _prepare_niah_config("niah_multiquery", **kwargs)
     return download_dataset(
         generate_samples(
-            get_haystack(type_haystack="essay"),
+            get_haystack(type_haystack="essay", shuffle=opts["shuffle_once"]),
             max_seq_length=seq,
-            template=TEMPLATE,
+            template=opts["template"],
             type_haystack="essay",
             type_needle_k="words",
             type_needle_v="numbers",
             num_needle_q=4,
-            num_samples=500,
-            TOKENIZER=get_tokenizer(**kwargs),
+            num_samples=opts["num_samples"],
+            shuffle=opts["shuffle"],
+            enable_cache=opts["enable_cache"],
+            TOKENIZER=opts["tokenizer"],
         )
         for seq in seq_lengths
     )
